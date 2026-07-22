@@ -1,6 +1,6 @@
 import type WebSocket from "ws";
 import { Chess } from "chess.js";
-import { GAME_OVER, INIT_GAME, MOVE } from "./messages.js";
+import { GAME_OVER, INIT_GAME, MOVE, INVALID_MOVE } from "./messages.js";
 
 export class Game {
   public player1: WebSocket;
@@ -15,76 +15,68 @@ export class Game {
     this.board = new Chess();
     this.moves = [];
     this.startTime = new Date();
-    this.player1.send(
-      JSON.stringify({
-        type: INIT_GAME,
-        payload: {
-          color: "white",
-        },
-      }),
-    );
 
+    this.player1.send(
+      JSON.stringify({ type: INIT_GAME, payload: { color: "w" } }),
+    );
     this.player2.send(
-      JSON.stringify({
-        type: INIT_GAME,
-        payload: {
-          color: "black",
-        },
-      }),
+      JSON.stringify({ type: INIT_GAME, payload: { color: "b" } }),
     );
   }
-  makeMove(
-    socket: WebSocket,
-    move: {
-      from: string;
-      to: string;
-    },
-  ) {
-    // Validations Here
-    if (this.board.turn() === "w" && socket !== this.player1) {
-      return;
-    }
 
-    if (this.board.turn() === "b" && socket !== this.player2) {
-      return;
-    }
-    // IS it this users move
-    // Is the move Valid
+  getOpponent(socket: WebSocket): WebSocket | null {
+    if (socket === this.player1) return this.player2;
+    if (socket === this.player2) return this.player1;
+    return null;
+  }
+
+  makeMove(socket: WebSocket, move: { from: string; to: string }) {
+    if (this.board.turn() === "w" && socket !== this.player1) return;
+    if (this.board.turn() === "b" && socket !== this.player2) return;
+
     try {
       this.board.move(move);
-    } catch (error) {
+    } catch {
+      socket.send(
+        JSON.stringify({
+          type: INVALID_MOVE,
+          payload: { message: "Illegal move" },
+        }),
+      );
       return;
     }
-    // Update the board
-    // Push the move
-    // Check if the game is Over
-    if (this.board.isGameOver()) {
-      const message = JSON.stringify({
-        type: GAME_OVER,
-        payload: {
-          winner: this.board.turn() === "w" ? "black" : "white",
-        },
-      });
 
-      this.player1.send(message);
-      this.player2.send(message);
-      return;
+    const message = JSON.stringify({ type: MOVE, payload: move });
+    this.player1.send(message);
+    this.player2.send(message);
+
+    if (this.board.isGameOver()) {
+      let winner: string;
+      if (this.board.isCheckmate()) {
+        winner = this.board.turn() === "w" ? "Black" : "White";
+      } else {
+        winner = "Draw";
+      }
+
+      const gameOverMessage = JSON.stringify({
+        type: GAME_OVER,
+        payload: { winner },
+      });
+      this.player1.send(gameOverMessage);
+      this.player2.send(gameOverMessage);
     }
-    if (this.board.turn() === "b") {
-      this.player2.send(
+  }
+
+  disconnect(socket: WebSocket) {
+    const opponent = this.getOpponent(socket);
+    if (opponent && opponent.readyState === 1) {
+      const winner = socket === this.player1 ? "Black" : "White";
+      opponent.send(
         JSON.stringify({
-          type: MOVE,
-          payload: move,
+          type: GAME_OVER,
+          payload: { winner: `${winner} (opponent disconnected)` },
         }),
       );
-    } else {
-      this.player1.send(
-        JSON.stringify({
-          type: MOVE,
-          payload: move,
-        }),
-      );
     }
-    // Send the update board to both players
   }
 }

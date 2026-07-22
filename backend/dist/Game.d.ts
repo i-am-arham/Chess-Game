@@ -6,9 +6,11 @@ export declare class Game {
     private moves;
     private startTime;
     constructor(player1: WebSocket, player2: WebSocket);
+    getOpponent(socket: WebSocket): WebSocket | null;
     makeMove(socket: WebSocket, move: {
         from: string;
         to: string;
     }): void;
+    disconnect(socket: WebSocket): void;
 }
 //# sourceMappingURL=Game.d.ts.map
